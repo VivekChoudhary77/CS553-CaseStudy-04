@@ -1,0 +1,38 @@
+# Keep secrets, local environments and non-runtime files out of the Docker build context.
+# The Dockerfile only COPYs pyproject.toml, uv.lock, README.md and src/; this keeps the context small
+# and guarantees secrets can never be sent to the builder.
+
+# secrets: API keys are passed at run time (--env-file / cloud secrets), never baked into the image
+.env
+.env.*
+
+# local Python environment and caches (the image builds its own .venv)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.cache/
+
+# git, CI, editor and tooling
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+.claude/
+graphify-out/
+
+# not needed at runtime
+tests/
+scripts/
+*.ipynb
+*.pdf
+*.png
+*.log
+*.tar
+docs/
+CLAUDE.md
+Dockerfile
+.dockerignore

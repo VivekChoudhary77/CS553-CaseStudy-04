@@ -1,0 +1,41 @@
+# secrets
+.env
+.env.*
+!.env.example
+*_key
+*_key.pub
+*.pem
+
+# python / uv
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# docker image exports (docker save)
+*.tar
+
+# caches and logs
+.cache/
+*.log
+
+# editor / OS / tooling
+.vscode/
+.idea/
+.DS_Store
+.claude/settings.local.json
+graphify-out/
+
+# course materials / personal notes (not part of the project)
+*.pdf
+Screenshot*.png
+previous_cs/
+Product spec.md
+CLAUDE.md

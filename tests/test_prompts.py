@@ -1,0 +1,57 @@
+# Used Opus 5.5 with High Effort, for the tests of the length presets and the output clean-up.
+# prompt: Write pytest tests that check each length preset returns the right instruction and token
+#   cap, and that the clean-up removes code fences, 'Here is...' preambles and wrapping quotes.
+# Case Study 4: removed the local token caps.
+
+import pytest
+
+from prompt_enhancer.prompts import (
+    BASE_SYSTEM_PROMPT,
+    build_system_prompt,
+    clean_output,
+    max_tokens_for,
+)
+
+
+@pytest.mark.parametrize(
+    "length, phrase, cap",
+    [
+        ("Short", "2–3 sentences", 256),
+        ("Medium", "one detailed paragraph", 512),
+        ("Long", "Role, Context, Task, Constraints, Output format", 1024),
+    ],
+)
+def test_length_presets(length, phrase, cap):
+    system = build_system_prompt(length)
+    assert system.startswith(BASE_SYSTEM_PROMPT)
+    assert phrase in system
+    assert max_tokens_for(length) == cap
+
+
+def test_unknown_length_rejected():
+    with pytest.raises(ValueError):
+        build_system_prompt("Huge")
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("  plain prompt \n", "plain prompt"),
+        ("```\nWrite a poem.\n```", "Write a poem."),
+        ("```markdown\nWrite a poem.\nAbout cats.\n```", "Write a poem.\nAbout cats."),
+        ("Here is the improved prompt:\nWrite a poem.", "Write a poem."),
+        ("Here's an improved version:\n\n```\nWrite a poem.\n```", "Write a poem."),
+        ("Sure! Here is the improved prompt:\nWrite a poem.", "Write a poem."),
+        # Fences in the middle of the text are content, not a wrapper.
+        ("Use this format:\n```\nx\n```\nthen stop.", "Use this format:\n```\nx\n```\nthen stop."),
+        # "Here is" that isn't a preamble line stays.
+        ("Here is my dog Rex; describe him vividly.", "Here is my dog Rex; describe him vividly."),
+        ("", ""),
+        # A single pair of wrapping quotes is removed; inner quotes mean it isn't a wrapper.
+        ('"Describe Kubernetes in simple terms."', "Describe Kubernetes in simple terms."),
+        ("“Describe Kubernetes.”", "Describe Kubernetes."),
+        ('"Cats" and "dogs" compared', '"Cats" and "dogs" compared'),
+    ],
+)
+def test_clean_output(raw, expected):
+    assert clean_output(raw) == expected

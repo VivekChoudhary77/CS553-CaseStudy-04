@@ -1,0 +1,74 @@
+# Used Opus 5.5 with High Effort, for the shared backend interface, error types and result
+#   records.
+# prompt: Define a Backend base class with name, model_id, availability() and generate(), a
+#   BackendError hierarchy with short human-readable reasons, and Attempt and EnhanceResult
+#   dataclasses.
+# Case Study 4: removed the local-model errors and the is_local flag.
+
+"""Backend interface, error hierarchy, and result dataclasses."""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+
+
+class BackendError(Exception):
+    """A backend failed; `reason` is a short, human-readable explanation."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class NotConfiguredError(BackendError):
+    def __init__(self) -> None:
+        super().__init__("not configured")
+
+
+class EmptyResponseError(BackendError):
+    def __init__(self) -> None:
+        super().__init__("empty response")
+
+
+class BackendTimeoutError(BackendError):
+    def __init__(self) -> None:
+        super().__init__("timeout")
+
+
+@dataclass
+class Attempt:
+    backend: str
+    model: str
+    ok: bool
+    reason: str
+    latency_s: float
+    label: str = ""  # display name; includes the model when a backend has several
+
+    @property
+    def display(self) -> str:
+        return self.label or self.backend
+
+
+@dataclass
+class EnhanceResult:
+    text: str
+    backend: str
+    model: str
+    latency_s: float
+    attempts: list[Attempt] = field(default_factory=list)
+
+
+class Backend(ABC):
+    name: str
+    model_id: str
+
+    @abstractmethod
+    def availability(self) -> tuple[bool, str]:
+        """Return (True, "ok") if usable now, else (False, reason)."""
+
+    @abstractmethod
+    def generate(
+        self, system_prompt: str, user_prompt: str, max_tokens: int, temperature: float
+    ) -> str:
+        """Return the cleaned, non-empty output or raise a BackendError."""

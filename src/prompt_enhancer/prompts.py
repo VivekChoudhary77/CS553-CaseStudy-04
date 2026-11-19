@@ -1,0 +1,84 @@
+# Used Opus 5.5 with High Effort, for the system prompt, the length presets and the clean-up of
+#   model output.
+# prompt: Write the system prompt for rewriting a rough prompt, three length presets (Short,
+#   Medium, Long) with an instruction and a token cap each, and a function that strips whitespace,
+#   a wrapping code fence and a 'Here is...' preamble from the output.
+# Case Study 4: removed the separate token caps for the local backend.
+
+"""System prompt, length presets, and output post-processing."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+BASE_SYSTEM_PROMPT = (
+    "You are an expert prompt engineer. Rewrite the user's rough prompt into a clearer, "
+    "more specific, more effective prompt for a large language model. Preserve the user's "
+    "intent and any concrete details. Output ONLY the improved prompt — no preamble, no "
+    "explanation, no quotes, no markdown code fences."
+)
+
+
+@dataclass(frozen=True)
+class LengthPreset:
+    name: str
+    instruction: str
+    max_tokens: int
+
+
+PRESETS: dict[str, LengthPreset] = {
+    p.name: p
+    for p in (
+        LengthPreset("Short", "Keep the improved prompt to 2–3 sentences.", 256),
+        LengthPreset("Medium", "Write the improved prompt as one detailed paragraph.", 512),
+        LengthPreset(
+            "Long",
+            "Write a structured prompt with these labeled sections: "
+            "Role, Context, Task, Constraints, Output format.",
+            1024,
+        ),
+    )
+}
+
+LENGTHS = list(PRESETS)
+
+
+def get_preset(length: str) -> LengthPreset:
+    try:
+        return PRESETS[length]
+    except KeyError:
+        raise ValueError(f"Unknown length preset: {length!r}") from None
+
+
+def build_system_prompt(length: str) -> str:
+    return f"{BASE_SYSTEM_PROMPT}\n\n{get_preset(length).instruction}"
+
+
+def max_tokens_for(length: str) -> int:
+    return get_preset(length).max_tokens
+
+
+_FENCE_RE = re.compile(r"^```[\w+-]*[ \t]*\n(.*?)\n?```$", re.DOTALL)
+_PREAMBLE_RE = re.compile(
+    r"^(?:sure[,!.]?\s*)?(?:here\s+is|here's|here\s+are)\b[^\n]*:[ \t]*\n",
+    re.IGNORECASE,
+)
+
+
+_QUOTE_PAIRS = {'"': '"', "“": "”"}
+
+
+def clean_output(text: str) -> str:
+    """Strip whitespace, a leading "Here is ...:" line, a single wrapping ``` fence,
+    and a single pair of quotes wrapping the whole output."""
+    text = (text or "").strip()
+    text = _PREAMBLE_RE.sub("", text, count=1).strip()
+    match = _FENCE_RE.match(text)
+    if match:
+        text = match.group(1).strip()
+    if len(text) >= 2 and _QUOTE_PAIRS.get(text[0]) == text[-1]:
+        inner = text[1:-1]
+        if text[0] not in inner and text[-1] not in inner:  # only a true wrapper, not "a" and "b"
+            text = inner.strip()
+    return text
