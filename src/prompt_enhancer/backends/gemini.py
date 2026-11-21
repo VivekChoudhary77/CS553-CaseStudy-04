@@ -3,6 +3,8 @@
 #   because the OpenAI-compatible endpoint cut replies short. Send the key in a header, map the
 #   reasoning effort to a thinking budget, turn blocked replies and HTTP errors into clear
 #   reasons, and build one backend for each model listed in GEMINI_MODEL.
+# Case Study 4: moved the HTTP call and its error mapping into post_json() so the Vertex AI backend
+#   (same generateContent schema, Bearer token instead of an API key) reuses it unchanged.
 
 """Gemini via Google's native generateContent REST API (stdlib HTTP, no vendor SDK).
 
@@ -89,6 +91,30 @@ def parse_response(data: dict[str, Any]) -> tuple[str, str]:
     return text, finish
 
 
+def post_json(url: str, body: dict[str, Any], headers: dict[str, str], timeout_s: float) -> dict[str, Any]:
+    """POST a JSON body and return the JSON reply; map every failure to a short BackendError."""
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", **headers},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_s) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode(errors="replace")
+        raise BackendError(reason_for_http(exc.code, detail)) from None
+    except (TimeoutError, socket.timeout):
+        raise BackendTimeoutError() from None
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, (TimeoutError, socket.timeout)):
+            raise BackendTimeoutError() from None
+        raise BackendError("connection error") from None
+    except json.JSONDecodeError:
+        raise BackendError("invalid response") from None
+
+
 def build_gemini_backends(settings: Settings) -> list[GeminiBackend]:
     """One backend per configured model, in GEMINI_MODEL order (the router tries each)."""
     return [GeminiBackend(settings, m) for m in settings.gemini_models] or [GeminiBackend(settings, "")]
@@ -120,27 +146,13 @@ class GeminiBackend(Backend):
         return True, "ok"
 
     def _post(self, body: dict[str, Any]) -> dict[str, Any]:
-        request = urllib.request.Request(
+        return post_json(
             f"{self._base_url}/models/{self.model_id}:generateContent",
-            data=json.dumps(body).encode(),
+            body,
             # Key goes in a header, never the URL, so it can't leak into logs.
-            headers={"Content-Type": "application/json", "x-goog-api-key": self._api_key},
-            method="POST",
+            {"x-goog-api-key": self._api_key},
+            self._timeout_s,
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self._timeout_s) as response:
-                return json.load(response)
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode(errors="replace")
-            raise BackendError(reason_for_http(exc.code, detail)) from None
-        except (TimeoutError, socket.timeout):
-            raise BackendTimeoutError() from None
-        except urllib.error.URLError as exc:
-            if isinstance(exc.reason, (TimeoutError, socket.timeout)):
-                raise BackendTimeoutError() from None
-            raise BackendError("connection error") from None
-        except json.JSONDecodeError:
-            raise BackendError("invalid response") from None
 
     def generate(
         self, system_prompt: str, user_prompt: str, max_tokens: int, temperature: float

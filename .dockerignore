@@ -6,6 +6,7 @@
 .env
 .env.*
 gha-creds-*.json
+*sa-key*.json
 
 # local Python environment and caches (the image builds its own .venv)
 .venv/

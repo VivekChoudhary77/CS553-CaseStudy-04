@@ -6,6 +6,7 @@
 # Case Study 4: removed the local backend; the failover order is now derived from BACKEND_NAMES
 #   (so a new backend is one entry), output tokens are capped by MAX_OUTPUT_TOKENS, and each
 #   failover and the serving backend are logged.
+# Case Study 4: added Vertex AI as the third backend (last in the default failover order).
 
 """Failover router. Pure Python — no gradio import, so it can be unit-tested directly."""
 
@@ -20,9 +21,9 @@ from prompt_enhancer.prompts import build_system_prompt, max_tokens_for
 
 log = logging.getLogger(__name__)
 
-GEMINI, OPENROUTER = "Gemini", "OpenRouter"
-# Default failover order. Adding a backend (e.g. Vertex AI) = one entry here + one in app.build_backends.
-BACKEND_NAMES = [GEMINI, OPENROUTER]
+GEMINI, OPENROUTER, VERTEX = "Gemini", "OpenRouter", "Vertex AI"
+# Default failover order. Adding a backend = one entry here + one in app.build_backends.
+BACKEND_NAMES = [GEMINI, OPENROUTER, VERTEX]
 
 
 def try_order(preferred: str) -> list[str]:

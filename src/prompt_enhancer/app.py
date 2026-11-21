@@ -7,6 +7,8 @@
 # Case Study 4: removed the local backend, its loading timer and the Prometheus metrics; warn at
 #   startup about unconfigured backends, show a clear error when none is configured, and pass
 #   MAX_OUTPUT_TOKENS to the router.
+# Case Study 4: added the Vertex AI backend (extra credit) as a third option; Gemini stays the
+#   default.
 
 """Gradio UI and the `prompt-enhancer` entry point."""
 
@@ -20,12 +22,14 @@ import gradio as gr
 from prompt_enhancer.backends.base import Attempt, Backend
 from prompt_enhancer.backends.gemini import build_gemini_backends
 from prompt_enhancer.backends.openrouter import OpenRouterBackend
+from prompt_enhancer.backends.vertex import build_vertex_backends
 from prompt_enhancer.config import Settings, load_settings, setup_logging
 from prompt_enhancer.prompts import LENGTHS
 from prompt_enhancer.router import (
     BACKEND_NAMES,
     GEMINI,
     OPENROUTER,
+    VERTEX,
     AllBackendsFailed,
     BackendGroup,
     enhance,
@@ -42,6 +46,7 @@ def build_backends(settings: Settings) -> dict[str, BackendGroup]:
     return {
         GEMINI: build_gemini_backends(settings),
         OPENROUTER: OpenRouterBackend(settings),
+        VERTEX: build_vertex_backends(settings),
     }
 
 
@@ -49,6 +54,7 @@ def build_backends(settings: Settings) -> dict[str, BackendGroup]:
 REQUIRED_ENV = {
     GEMINI: "GEMINI_API_KEY and GEMINI_MODEL",
     OPENROUTER: "OPENROUTER_API_KEY and OPENROUTER_MODEL",
+    VERTEX: "VERTEX_PROJECT and VERTEX_MODEL (plus Google credentials)",
 }
 
 
@@ -124,7 +130,7 @@ def build_ui(backends: Mapping[str, BackendGroup], max_output_tokens: int | None
         gr.Markdown(
             "# Prompt Enhancer\n"
             "Paste a rough prompt and get back a clearer, more effective one. "
-            "Uses Gemini or OpenRouter, with automatic failover."
+            "Uses Gemini, OpenRouter or Vertex AI, with automatic failover."
         )
         gr.Markdown(status_markdown(backends))
 

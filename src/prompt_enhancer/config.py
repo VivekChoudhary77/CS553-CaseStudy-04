@@ -4,6 +4,8 @@
 #   variable. Missing API keys must never crash startup, bad numbers fall back to the default, and
 #   keys are never printed. Add logging to stdout.
 # Case Study 4: removed the local model and metrics-port settings; added MAX_OUTPUT_TOKENS.
+# Case Study 4: added the Vertex AI settings (VERTEX_PROJECT/LOCATION/MODEL and the optional
+#   VERTEX_SA_KEY_JSON service-account key, which repr() never shows) and VERTEX_THINKING_LEVEL.
 
 """Settings loaded from environment variables (and an optional .env file)."""
 
@@ -22,6 +24,7 @@ log = logging.getLogger(__name__)
 DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MAX_OUTPUT_TOKENS = 1024
+DEFAULT_VERTEX_LOCATION = "global"
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,12 @@ class Settings:
     openrouter_model: str = ""
     openrouter_base_url: str = DEFAULT_OPENROUTER_BASE_URL
     openrouter_reasoning_effort: str = "none"
+    vertex_project: str = ""
+    vertex_location: str = DEFAULT_VERTEX_LOCATION
+    vertex_model: str = ""
+    vertex_thinking_level: str = "minimal"
+    # Service-account key JSON (Azure/AWS). Blank = Application Default Credentials (Cloud Run).
+    vertex_sa_key_json: str = ""
     api_timeout_s: float = 20.0
     max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     host: str = "0.0.0.0"
@@ -53,10 +62,21 @@ class Settings:
     def openrouter_configured(self) -> bool:
         return bool(self.openrouter_api_key and self.openrouter_model)
 
+    @property
+    def vertex_models(self) -> list[str]:
+        """VERTEX_MODEL may be one id or a comma-separated list, tried in order."""
+        return [m.strip() for m in self.vertex_model.split(",") if m.strip()]
+
+    @property
+    def vertex_configured(self) -> bool:
+        """Project and model set; credentials are only checked when Vertex is first called."""
+        return bool(self.vertex_project and self.vertex_models)
+
     def __repr__(self) -> str:  # never leak keys into logs or tracebacks
         return (
             f"Settings(gemini_configured={self.gemini_configured}, "
             f"openrouter_configured={self.openrouter_configured}, "
+            f"vertex_configured={self.vertex_configured}, "
             f"host={self.host!r}, port={self.port})"
         )
 
@@ -104,6 +124,12 @@ def load_settings(env_file: str | Path | None = ".env") -> Settings:
         openrouter_model=_str("OPENROUTER_MODEL", ""),
         openrouter_base_url=_str("OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE_URL),
         openrouter_reasoning_effort=os.environ.get("OPENROUTER_REASONING_EFFORT", "none").strip(),
+        vertex_project=_str("VERTEX_PROJECT", ""),
+        vertex_location=_str("VERTEX_LOCATION", DEFAULT_VERTEX_LOCATION),
+        vertex_model=_str("VERTEX_MODEL", ""),
+        # Explicitly blank means "omit thinkingConfig", like the reasoning-effort settings.
+        vertex_thinking_level=os.environ.get("VERTEX_THINKING_LEVEL", "minimal").strip(),
+        vertex_sa_key_json=_str("VERTEX_SA_KEY_JSON", ""),
         api_timeout_s=_float("API_TIMEOUT_S", 20.0),
         max_output_tokens=_positive_int("MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS),
         host=_str("HOST", "0.0.0.0"),

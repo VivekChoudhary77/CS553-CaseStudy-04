@@ -2,6 +2,7 @@
 # prompt: Write a smoke test that sends a tiny prompt to each configured backend and each Gemini
 #   model, prints the status, reason and latency, and exits non-zero if none of them succeeds.
 # Case Study 4: removed the local backend and the --skip-local flag.
+# Case Study 4: also checks every configured Vertex AI model.
 
 """Call each configured backend once with a tiny prompt; exit non-zero if none succeed.
 
@@ -16,6 +17,7 @@ import time
 from prompt_enhancer.backends.base import Backend, BackendError
 from prompt_enhancer.backends.gemini import build_gemini_backends
 from prompt_enhancer.backends.openrouter import OpenRouterBackend
+from prompt_enhancer.backends.vertex import build_vertex_backends
 from prompt_enhancer.config import load_settings, setup_logging
 
 SYSTEM = "You are a health check. Follow the instruction exactly."
@@ -45,7 +47,11 @@ def main() -> int:
     settings = load_settings()
     setup_logging("WARNING")
     # Every configured Gemini model is checked, so you can see which ones have quota left.
-    backends: list[Backend] = [*build_gemini_backends(settings), OpenRouterBackend(settings)]
+    backends: list[Backend] = [
+        *build_gemini_backends(settings),
+        OpenRouterBackend(settings),
+        *build_vertex_backends(settings),
+    ]
     results = [check(b) for b in backends]
     succeeded = sum(results)
     print(f"{succeeded}/{len(results)} backends/models succeeded")

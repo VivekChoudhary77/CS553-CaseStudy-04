@@ -3,6 +3,8 @@
 .env.*
 # credentials file written by google-github-actions/auth in CI
 gha-creds-*.json
+# Google service-account keys (Vertex AI); they live outside the repo, this is a safety net
+*sa-key*.json
 !.env.example
 *_key
 *_key.pub

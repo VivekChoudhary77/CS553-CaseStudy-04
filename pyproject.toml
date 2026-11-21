@@ -1,13 +1,15 @@
 [project]
 name = "prompt-enhancer"
 version = "0.1.0"
-description = "Gradio app that rewrites rough prompts using Gemini or OpenRouter with automatic failover."
+description = "Gradio app that rewrites rough prompts using Gemini, OpenRouter or Vertex AI with automatic failover."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
+  "google-auth>=2.63.0",
   "gradio",
   "openai",
   "python-dotenv",
+  "requests>=2.34.2",
 ]
 
 [project.scripts]

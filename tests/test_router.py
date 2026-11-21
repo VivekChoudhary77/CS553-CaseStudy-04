@@ -4,6 +4,7 @@
 #   between Gemini models. No network and no model download.
 # Case Study 4: removed the local backend; added tests for the derived failover order, the
 #   MAX_OUTPUT_TOKENS cap and the failover log line.
+# Case Study 4: added the three-backend order with Vertex AI.
 
 import pytest
 
@@ -57,6 +58,27 @@ def all_failing():
 def test_failover_order(preferred, expected):
     with pytest.raises(AllBackendsFailed) as info:
         enhance("hi", preferred, "Short", 0.7, all_failing())
+    assert [a.backend for a in info.value.attempts] == expected
+
+
+@pytest.mark.parametrize(
+    "preferred, expected",
+    [
+        ("Gemini", ["Gemini", "OpenRouter", "Vertex AI"]),
+        ("OpenRouter", ["OpenRouter", "Gemini", "Vertex AI"]),
+        ("Vertex AI", ["Vertex AI", "Gemini", "OpenRouter"]),
+    ],
+)
+def test_failover_order_with_vertex(preferred, expected):
+    backends = make_backends(
+        **{
+            "Gemini": FakeBackend("Gemini", error=BackendError("rate limited (429)")),
+            "OpenRouter": FakeBackend("OpenRouter", error=BackendError("HTTP 500")),
+            "Vertex AI": FakeBackend("Vertex AI", error=BackendError("HTTP 503")),
+        }
+    )
+    with pytest.raises(AllBackendsFailed) as info:
+        enhance("hi", preferred, "Short", 0.7, backends)
     assert [a.backend for a in info.value.attempts] == expected
 
 
