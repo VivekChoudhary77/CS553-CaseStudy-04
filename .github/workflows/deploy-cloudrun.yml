@@ -1,0 +1,144 @@
+# Used Opus 5.5 with High Effort, for the CS4 GitHub Action (deliverable 5a).
+# prompt: Write a GitHub Actions workflow that tests the app, builds the linux/amd64 image, pushes it
+#   to Docker Hub and deploys it to the existing Cloud Run service with Workload Identity Federation
+#   (no JSON key), changing only the image so the service's secrets, env vars and scaling stay as is.
+# Case Study 4: new file. One-time setup (Docker Hub token, GitHub secrets, GCP pool/provider/SA) is
+#   in docs/GITHUB_ACTIONS_GCP.md.
+
+name: Build and deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/deploy-cloudrun.yml"
+  workflow_dispatch:
+
+# Never run two deploys at once; a newer push waits for the running one instead of cancelling it.
+concurrency:
+  group: deploy-cloudrun
+  cancel-in-progress: false
+
+# Default for every job; only the deploy job adds id-token: write.
+permissions:
+  contents: read
+
+env:
+  # None of these are secret. The two WIF values come from the Cloud Shell setup (docs/GITHUB_ACTIONS_GCP.md §3).
+  PROJECT_ID: g25-cs553-cs4
+  REGION: us-central1
+  SERVICE: g25-prompt-enhancer
+  IMAGE: docker.io/vickinez077/g25-prompt-enhancer
+  WIF_PROVIDER: projects/447080352026/locations/global/workloadIdentityPools/github/providers/github-repo
+  DEPLOYER_SA: gh-deployer@g25-cs553-cs4.iam.gserviceaccount.com
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.13.1" # same uv as the Dockerfile
+          enable-cache: true
+
+      - name: Install (locked)
+        run: uv sync --locked
+
+      - name: Run tests (no network, no keys)
+        run: uv run pytest -q
+
+  build-push:
+    name: Build and push image
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Image tag from the commit
+        id: tag
+        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # sha-<7> is immutable and is what Cloud Run deploys; cs4/latest keep the tags Azure and AWS pull current.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+            ${{ env.IMAGE }}:cs4
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Cloud Run
+    needs: build-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # lets the job request the GitHub OIDC token that WIF exchanges
+    steps:
+      - uses: actions/checkout@v7 # must run before auth
+
+      - uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      # Only --image changes: gcloud keeps the service's secrets, env vars, scaling and public access.
+      # Cloud Run pulls Docker Hub images through mirror.gcr.io, which can miss a brand-new tag
+      # ("Image 'mirror.gcr.io/...' not found" on our first manual deploy), so retry a few times.
+      - name: Deploy new image
+        env:
+          TAG: ${{ needs.build-push.outputs.tag }}
+        run: |
+          for attempt in 1 2 3; do
+            if gcloud run deploy "$SERVICE" \
+                 --image "$IMAGE:$TAG" \
+                 --region "$REGION" \
+                 --project "$PROJECT_ID" \
+                 --quiet; then
+              exit 0
+            fi
+            echo "Deploy attempt $attempt failed; retrying in 60 s"
+            sleep 60
+          done
+          echo "Deploy failed after 3 attempts" >&2
+          exit 1
+
+      - name: Check the service answers
+        env:
+          TAG: ${{ needs.build-push.outputs.tag }}
+        run: |
+          URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT_ID" \
+                  --format='value(status.url)')
+          # The first request after deploy can be a cold start.
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' --retry 5 --retry-delay 5 --retry-all-errors "$URL/")
+          echo "GET $URL/ -> $CODE"
+          {
+            echo "### Deployed to Cloud Run"
+            echo "- Image: \`$IMAGE:$TAG\`"
+            echo "- URL: $URL"
+            echo "- HTTP status: $CODE"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$CODE" = "200"

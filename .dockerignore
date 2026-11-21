@@ -5,6 +5,7 @@
 # secrets: API keys are passed at run time (--env-file / cloud secrets), never baked into the image
 .env
 .env.*
+gha-creds-*.json
 
 # local Python environment and caches (the image builds its own .venv)
 .venv/
